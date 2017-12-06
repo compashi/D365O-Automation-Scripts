@@ -2,12 +2,12 @@
 
 <#
 .SYNOPSIS
-    Build and sync local environment using model list in certain order.
+    Build and sync local environment using sorted models list.
     
 .DESCRIPTION
     This script is used to build models in a certain order. There is a known issue
     in Dynamics 365 when building models. Sometimes it does not considere the
-    dependencies between models.
+    dependencies between them.
 
 .NOTES
     When running through automation, set the $LogPath variable to redirect
@@ -16,7 +16,86 @@
     Disclaimer:  
     This code is made available AS IS and is not supported.
     The risk of the use or the results from the use of this code remains with the user.
+
+    Most of the functions has been directly copied from .../DynamicsSDK/DynamicsSDKCommon.ps1.
 #>
+
+function Get-AX7DeploymentAosWebConfigPath
+{
+    [Cmdletbinding()]
+    Param([string]$WebsiteName)
+    
+    # Get verbose preference from caller.
+    $VerbosePreference = $PSCmdlet.GetVariableValue("VerbosePreference")
+
+    [string]$AosWebConfigPath = $null
+
+    [string]$AosWebsitePath = Get-AX7DeploymentAosWebsitePath -WebsiteName $WebsiteName
+
+    if ($AosWebsitePath)
+    {
+        $AosWebConfigPath = Join-Path -Path $AosWebsitePath -ChildPath "web.config"
+    }
+
+    return $AosWebConfigPath
+}
+
+function Get-AX7DeploymentAosWebsitePath
+{
+    [Cmdletbinding()]
+    Param([string]$WebsiteName)
+    
+    # Get verbose preference from caller.
+    $VerbosePreference = $PSCmdlet.GetVariableValue("VerbosePreference")
+
+    [string]$AosWebsitePath = $null
+
+    # Get website and its physical path.
+    $Website = Get-AX7DeploymentAosWebsite -WebsiteName $WebsiteName
+    if ($Website)
+    {
+        $AosWebsitePath = $Website.physicalPath
+    }
+    else
+    {
+        throw "No AOS website could be found in IIS."
+    }
+
+    return $AosWebsitePath
+}
+
+function Get-AX7DeploymentAosWebsite
+{
+    [Cmdletbinding()]
+    Param([string]$WebsiteName)
+    
+    # Get verbose preference from caller.
+    $VerbosePreference = $PSCmdlet.GetVariableValue("VerbosePreference")
+
+    # Import only the functions needed (Too noisy with Verbose).
+    Import-Module -Name "WebAdministration" -Function "Get-Website" -Verbose:$false
+
+    [Microsoft.IIs.PowerShell.Framework.ConfigurationElement]$Website = $null
+
+    if ($WebsiteName)
+    {
+        # Use specified website name.
+        $Website = Get-Website -Name $WebsiteName
+    }
+    else
+    {
+        # Try default service model website name.
+        $Website = Get-Website -Name "AosService"
+        if (!$Website)
+        {
+            # Try default deploy website name.
+            $Website = Get-Website -Name "AosWebApplication"
+        }
+    }
+
+    return $Website
+}
+
 function Restart-IIS
 {
     [Cmdletbinding()]
@@ -194,7 +273,7 @@ try
     Foreach ($model in $models)
     {
         Write-Progress -ParentId 1 -Activity "Building $model model..." -PercentComplete ($Counter / $models.Count * 100)       
-        & $XppcPath "-failfast" "-modelmodule=$($model)" "-metadata=$($PackagesPath)" "-output=$($PackagesPath)\$($model)\bin" "-xref" "-referenceFolder=$($PackagesPath)" "-refPath=$($PackagesPath)\$($model)\bin" "-xmllog=$NewDir\$model.xml" "-log=$NewDir\$model.log"
+        & $XppcPath "-verbose" "-failfast" "-modelmodule=$($model)" "-metadata=$($PackagesPath)" "-output=$($PackagesPath)\$($model)\bin" "-xref" "-referenceFolder=$($PackagesPath)" "-refPath=$($PackagesPath)\$($model)\bin" "-xmllog=$NewDir\$model.xml" "-log=$NewDir\$model.log"
 
         $Counter = $Counter + 1
     }
